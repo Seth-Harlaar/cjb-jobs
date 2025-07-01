@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>CSV Job Listings Visualizer</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+  }
+  #dropzone {
+    border: 3px dashed #aaa;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    color: #888;
+    font-size: 18px;
+    cursor: pointer;
+    margin-bottom: 20px;
+  }
+  #dropzone.hover {
+    border-color: #666;
+    color: #444;
+  }
+  input[type="search"] {
+    width: 300px;
+    padding: 8px;
+    margin-bottom: 15px;
+    font-size: 16px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+    user-select: none;
+  }
+  th {
+    background-color: #f2f2f2;
+    cursor: pointer;
+    position: relative;
+  }
+  th.asc::after {
+    content: " ▲";
+    position: absolute;
+    right: 8px;
+  }
+  th.desc::after {
+    content: " ▼";
+    position: absolute;
+    right: 8px;
+  }
+  tr:hover {
+    background-color: #eef;
+  }
+  a {
+    color: #06c;
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+<h2>Drop CSV File Here to Visualize Job Listings</h2>
+<div id="dropzone">Drag & drop CSV file here, or click to select</div>
+<input type="file" id="fileInput" accept=".csv" style="display:none" />
+<br />
+<input type="search" id="searchInput" placeholder="Search jobs..." style="display:none" />
+
+<table id="jobsTable" style="display:none">
+  <thead>
+    <tr>
+      <th data-key="title">Title</th>
+      <th data-key="business">Company</th>
+      <th data-key="location">Location</th>
+      <th data-key="date">Date Posted</th>
+      <th data-key="salary">Salary</th>
+      <th data-key="source">Source</th>
+      <th data-key="url">Link</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const searchInput = document.getElementById('searchInput');
+  const table = document.getElementById('jobsTable');
+  const tbody = table.querySelector('tbody');
+  let jobsData = [];
+  let currentSort = { key: null, direction: null };
+
+  // Helpers to parse CSV (simple, assumes no commas inside fields)
+  function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim());
+    const rows = lines.slice(1);
+    return rows.map(line => {
+      const cols = line.split(',').map(c => c.trim());
+      const obj = {};
+      headers.forEach((h, i) => obj[h] = cols[i] || "");
+      return obj;
+    });
+  }
+
+  // Render table rows from filtered data
+  function renderTable(data) {
+    tbody.innerHTML = "";
+    data.forEach(job => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHTML(job.title)}</td>
+        <td>${escapeHTML(job.business)}</td>
+        <td>${escapeHTML(job.location)}</td>
+        <td>${escapeHTML(job.date)}</td>
+        <td>${escapeHTML(job.salary)}</td>
+        <td>${escapeHTML(job.source)}</td>
+        <td>${job.url ? `<a href="${escapeHTML(job.url)}" target="_blank">Link</a>` : ''}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Basic HTML escape
+  function escapeHTML(text) {
+    return text
+      ? text.replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;")
+      : '';
+  }
+
+  // Filter based on search input
+  function filterJobs(query) {
+    if (!query) return jobsData;
+    const lower = query.toLowerCase();
+    return jobsData.filter(job =>
+      Object.values(job).some(val => val.toLowerCase().includes(lower))
+    );
+  }
+
+  // Sort data by key and toggle direction
+  function sortJobs(key) {
+    let direction = 'asc';
+    if (currentSort.key === key && currentSort.direction === 'asc') {
+      direction = 'desc';
+    }
+    currentSort = { key, direction };
+
+    jobsData.sort((a,b) => {
+      const valA = (a[key] || "").toLowerCase();
+      const valB = (b[key] || "").toLowerCase();
+      if (valA < valB) return direction === 'asc' ? -1 : 1;
+      if (valA > valB) return direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  // Update sort icons on headers
+  function updateSortIcons() {
+    const headers = table.querySelectorAll('th');
+    headers.forEach(th => {
+      th.classList.remove('asc', 'desc');
+      if (th.dataset.key === currentSort.key) {
+        th.classList.add(currentSort.direction);
+      }
+    });
+  }
+
+  // On drop
+  dropzone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropzone.classList.add('hover');
+  });
+  dropzone.addEventListener('dragleave', e => {
+    dropzone.classList.remove('hover');
+  });
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('hover');
+    const files = e.dataTransfer.files;
+    if (files.length) {
+      readFile(files[0]);
+    }
+  });
+
+  // On click to open file dialog
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+      readFile(fileInput.files[0]);
+    }
+  });
+
+  // Read and parse CSV file
+  function readFile(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      alert('Please upload a CSV file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        jobsData = parseCSV(e.target.result);
+        searchInput.value = '';
+        searchInput.style.display = 'inline-block';
+        table.style.display = 'table';
+        currentSort = { key: null, direction: null };
+        renderTable(jobsData);
+      } catch(err) {
+        alert('Failed to parse CSV file.');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // Search input event
+  searchInput.addEventListener('input', () => {
+    const filtered = filterJobs(searchInput.value);
+    renderTable(filtered);
+  });
+
+  // Sorting on header click
+  table.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      sortJobs(key);
+      updateSortIcons();
+      const filtered = filterJobs(searchInput.value);
+      renderTable(filtered);
+    });
+  });
+</script>
+
+</body>
+</html>
