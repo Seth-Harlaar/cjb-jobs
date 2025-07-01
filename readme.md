@@ -2,6 +2,8 @@
 
 Quick little script written in Python to scrape the Canada Job Bank for job postings.
 
+Run the python script with `py jobs_scraper.py`, you will be prompted for input.
+
 ### inputs
 - keyword
 - max results
